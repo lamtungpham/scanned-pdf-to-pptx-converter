@@ -1,6 +1,6 @@
 
-import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Upload, FileType, Check, AlertCircle, RefreshCw, FileText, Sparkles, Key, ExternalLink, Zap, Diamond, Info } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Upload, FileType, Check, AlertCircle, RefreshCw, FileText, Sparkles, Key, Zap, Diamond, Info } from 'lucide-react';
 import Button from './components/Button';
 import StepIndicator from './components/StepIndicator';
 import { ProcessingState, SlideData, ProcessingProgress, ModelMode } from './types';
@@ -24,7 +24,8 @@ const App: React.FC = () => {
   const [status, setStatus] = useState<ProcessingState>(ProcessingState.IDLE);
   const [progress, setProgress] = useState<ProcessingProgress>({ current: 0, total: 0, message: '' });
   const [error, setError] = useState<string | null>(null);
-  const [hasApiKey, setHasApiKey] = useState<boolean>(true);
+  // Quan trọng: Mặc định là false để người dùng bắt buộc phải qua bước kiểm tra/chọn Key
+  const [hasApiKey, setHasApiKey] = useState<boolean>(false);
   const [modelMode, setModelMode] = useState<ModelMode>('flash'); 
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -32,8 +33,17 @@ const App: React.FC = () => {
   useEffect(() => {
     const checkKey = async () => {
       if (window.aistudio) {
-        const selected = await window.aistudio.hasSelectedApiKey();
-        setHasApiKey(selected);
+        try {
+          const selected = await window.aistudio.hasSelectedApiKey();
+          setHasApiKey(selected);
+        } catch (e) {
+          console.error("Error checking API key status", e);
+          setHasApiKey(false);
+        }
+      } else {
+        // Nếu không ở trong môi trường AI Studio (ví dụ chạy local hoặc vercel trực tiếp)
+        // Ta kiểm tra xem biến môi trường có sẵn không
+        setHasApiKey(!!process.env.API_KEY);
       }
     };
     checkKey();
@@ -41,9 +51,16 @@ const App: React.FC = () => {
 
   const handleSelectKey = async () => {
     if (window.aistudio) {
-      await window.aistudio.openSelectKey();
-      setHasApiKey(true);
-      setError(null);
+      try {
+        await window.aistudio.openSelectKey();
+        // Theo quy tắc: giả định thành công ngay sau khi mở dialog để tránh race condition
+        setHasApiKey(true);
+        setError(null);
+      } catch (e) {
+        console.error("Error opening key selector", e);
+      }
+    } else {
+      setError("Tính năng chọn Key chỉ khả dụng trong môi trường AI Studio. Vui lòng kiểm tra biến môi trường API_KEY.");
     }
   };
 
@@ -69,8 +86,8 @@ const App: React.FC = () => {
   const startConversion = async () => {
     if (!file) return;
 
-    if (!hasApiKey) {
-        setError("Vui lòng cấu hình API Key trước khi bắt đầu.");
+    if (!hasApiKey && window.aistudio) {
+        await handleSelectKey();
         return;
     }
 
@@ -112,13 +129,14 @@ const App: React.FC = () => {
 
     } catch (err: any) {
       console.error(err);
-      if (err.message === "API_KEY_INVALID") {
+      const errMsg = err.message || "";
+      if (errMsg.includes("Requested entity was not found") || errMsg.includes("API_KEY_INVALID") || errMsg.includes("403") || errMsg.includes("401")) {
           setHasApiKey(false);
           setStatus(ProcessingState.IDLE);
-          setError(`Lỗi: Mô hình ${modelMode.toUpperCase()} từ chối truy cập. Nếu bạn dùng Key miễn phí, hãy chuyển sang chế độ "Flash" (Free Tier) hoặc bật Billing cho Project.`);
+          setError(`Lỗi xác thực: Mô hình ${modelMode.toUpperCase()} từ chối truy cập. Nếu bạn dùng gói miễn phí, hãy chọn mô hình "Flash" hoặc thiết lập lại API Key.`);
       } else {
           setStatus(ProcessingState.ERROR);
-          setError(err.message || "Đã xảy ra lỗi trong quá trình xử lý.");
+          setError(errMsg || "Đã xảy ra lỗi trong quá trình xử lý.");
       }
     }
   };
@@ -175,15 +193,15 @@ const App: React.FC = () => {
                     <div className="w-16 h-16 bg-amber-50 text-amber-600 rounded-full flex items-center justify-center mx-auto mb-4">
                         <Key className="w-8 h-8" />
                     </div>
-                    <h2 className="text-xl font-bold mb-2">Yêu cầu API Key</h2>
+                    <h2 className="text-xl font-bold mb-2">Cấu hình API Key</h2>
                     <p className="text-slate-500 text-sm mb-6 leading-relaxed">
-                        Bạn cần cấu hình API Key để sử dụng tính năng AI. Hãy sử dụng <b>Gemini 2.5 Flash</b> nếu bạn dùng tài khoản miễn phí.
+                        Để bắt đầu, bạn cần chọn API Key từ Google AI Studio. <b>Gemini 2.5 Flash</b> thường hỗ trợ tốt cho các tài khoản dùng thử.
                     </p>
                     <div className="space-y-3">
-                        <Button onClick={handleSelectKey} className="w-full shadow-lg shadow-indigo-100">Cấu hình API Key</Button>
+                        <Button onClick={handleSelectKey} className="w-full shadow-lg shadow-indigo-100">Chọn API Key</Button>
                         <div className="flex items-center justify-center gap-2 text-[10px] text-slate-400">
                              <Info size={12} />
-                             <span>Tự động tối ưu hóa và làm sạch slide</span>
+                             <span>Yêu cầu dự án Google Cloud có bật Billing nếu dùng Pro</span>
                         </div>
                     </div>
                 </div>
@@ -208,6 +226,9 @@ const App: React.FC = () => {
                                 → Thử chuyển sang chế độ Flash (Dành cho tài khoản Free)
                             </button>
                         )}
+                        <button onClick={handleSelectKey} className="text-xs text-slate-500 font-medium ml-8 text-left hover:underline">
+                            → Thiết lập lại API Key
+                        </button>
                     </div>
                 )}
 
