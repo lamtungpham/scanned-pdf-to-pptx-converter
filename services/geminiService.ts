@@ -10,35 +10,30 @@ Bạn là chuyên gia OCR cao cấp cho việc chuyển đổi slide bài giản
 4. Định dạng: Dự đoán màu sắc văn bản (HEX), độ đậm (Bold) và căn lề (Alignment).
 `;
 
-const isAuthError = (error: any): boolean => {
-  const message = error?.message || "";
-  const status = error?.status || "";
-  return (
-    message.includes("Requested entity was not found") || 
-    message.includes("PERMISSION_DENIED") ||
-    message.includes("403") ||
-    message.includes("404") ||
-    status === "PERMISSION_DENIED"
-  );
+const getAIInstance = () => {
+  const apiKey = process.env.API_KEY;
+  if (!apiKey || apiKey === 'undefined' || apiKey === '') {
+    throw new Error("API_KEY_NOT_FOUND");
+  }
+  return new GoogleGenAI({ apiKey });
 };
 
 export const analyzeSlideLayout = async (base64Image: string, pageIndex: number, mode: ModelMode): Promise<SlideElement[]> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const modelName = mode === 'pro' ? 'gemini-3-pro-preview' : 'gemini-3-flash-preview';
-  
   try {
+    const ai = getAIInstance();
+    const modelName = mode === 'pro' ? 'gemini-3-pro-preview' : 'gemini-3-flash-preview';
+    
     const response = await ai.models.generateContent({
       model: modelName,
       contents: {
         parts: [
           { inlineData: { mimeType: "image/jpeg", data: base64Image } },
-          { text: "Phân tích và trích xuất tất cả các khối văn bản trong ảnh này. Giữ nguyên định dạng và vị trí." }
+          { text: "Phân tích và trích xuất các khối văn bản trong slide này." }
         ]
       },
       config: {
         systemInstruction: OCR_SYSTEM_INSTRUCTION,
         responseMimeType: "application/json",
-        thinkingConfig: mode === 'pro' ? { thinkingBudget: 2000 } : undefined,
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -47,9 +42,9 @@ export const analyzeSlideLayout = async (base64Image: string, pageIndex: number,
               items: {
                 type: Type.OBJECT,
                 properties: {
-                  content: { type: Type.STRING, description: "Nội dung văn bản tiếng Việt" },
-                  box_2d: { type: Type.ARRAY, items: { type: Type.INTEGER }, description: "[ymin, xmin, ymax, xmax]" },
-                  textColor: { type: Type.STRING, description: "Mã màu HEX, ví dụ #FFFFFF" },
+                  content: { type: Type.STRING },
+                  box_2d: { type: Type.ARRAY, items: { type: Type.INTEGER } },
+                  textColor: { type: Type.STRING },
                   isBold: { type: Type.BOOLEAN },
                   alignment: { type: Type.STRING, enum: ["left", "center", "right"] }
                 },
@@ -72,31 +67,22 @@ export const analyzeSlideLayout = async (base64Image: string, pageIndex: number,
       }
     }));
   } catch (error: any) {
-    console.error(`OCR Error on page ${pageIndex}:`, error);
-    if (isAuthError(error)) throw new Error("API_KEY_INVALID");
-    return [];
+    console.error(`OCR Error:`, error);
+    throw error;
   }
 };
 
 export const inpaintImage = async (maskedBase64: string, mode: ModelMode): Promise<string> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  // Sử dụng gemini-2.5-flash-image cho tác vụ chỉnh sửa ảnh (inpainting)
-  const modelName = mode === 'pro' ? 'gemini-3-pro-image-preview' : 'gemini-2.5-flash-image';
-
   try {
+    const ai = getAIInstance();
+    const modelName = mode === 'pro' ? 'gemini-3-pro-image-preview' : 'gemini-2.5-flash-image';
+
     const response = await ai.models.generateContent({
       model: modelName,
       contents: {
         parts: [
-          {
-            inlineData: {
-              data: maskedBase64,
-              mimeType: 'image/jpeg',
-            },
-          },
-          {
-            text: 'Hãy phục hồi các vùng bị mờ hoặc bị che khuất trong ảnh này. Tái tạo màu sắc và họa tiết nền sao cho hoàn toàn trùng khớp với môi trường xung quanh. KHÔNG thêm đối tượng mới, văn bản hay logo. Chỉ tập trung vào việc làm sạch nền để tạo ra một bản slide trống nguyên bản.',
-          },
+          { inlineData: { data: maskedBase64, mimeType: 'image/jpeg' } },
+          { text: 'Xóa sạch văn bản và phục hồi nền slide.' },
         ],
       },
       config: {
@@ -112,8 +98,7 @@ export const inpaintImage = async (maskedBase64: string, mode: ModelMode): Promi
     }
     return maskedBase64;
   } catch (error: any) {
-    console.error("AI Healing Error:", error);
-    if (isAuthError(error)) throw new Error("API_KEY_INVALID");
+    console.error("Inpaint Error:", error);
     return maskedBase64;
   }
 };

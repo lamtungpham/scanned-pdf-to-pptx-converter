@@ -8,14 +8,13 @@ import { loadPdf, renderPageToCanvas, getFirstPagePreview, applyRoughMask } from
 import { analyzeSlideLayout, inpaintImage } from './services/geminiService';
 import { generatePptx } from './services/pptxService';
 
-interface AIStudio {
-  hasSelectedApiKey(): Promise<boolean>;
-  openSelectKey(): Promise<void>;
-}
-
+// Fix: Moving AIStudio definition into global scope and using a unified declaration to avoid "identical modifiers" errors.
 declare global {
   interface Window {
-    aistudio: AIStudio;
+    aistudio: {
+      hasSelectedApiKey(): Promise<boolean>;
+      openSelectKey(): Promise<void>;
+    };
   }
 }
 
@@ -31,7 +30,7 @@ const App: React.FC = () => {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Kiểm tra xem Developer đã set Key trên Vercel chưa
+  // Check if Developer has pre-configured the API Key in the environment
   useEffect(() => {
     const key = process.env.API_KEY;
     if (key && key !== 'undefined' && key !== '') {
@@ -46,6 +45,7 @@ const App: React.FC = () => {
       if (window.aistudio) {
         await window.aistudio.openSelectKey();
         setIsAuthChecking(false);
+        // Requirement: Assume successful after triggering openSelectKey and proceed.
       } else {
         setError("Vui lòng cấu hình API_KEY trong Vercel Environment Variables.");
         setIsAuthChecking(false);
@@ -77,7 +77,7 @@ const App: React.FC = () => {
   const startConversion = async () => {
     if (!file) return;
 
-    // Nếu dùng Pro mode và chưa có global key, yêu cầu xác thực cá nhân (theo quy định Google)
+    // Requirement: Mandatory API Key selection for Gemini 3 Pro image/video models.
     if (modelMode === 'pro' && !hasGlobalKey) {
         try {
             const hasKey = await window.aistudio.hasSelectedApiKey();
@@ -128,7 +128,14 @@ const App: React.FC = () => {
     } catch (err: any) {
       console.error(err);
       setStatus(ProcessingState.IDLE);
-      if (err.message === "API_KEY_NOT_FOUND" || err.message.includes("API key") || err.message.includes("Requested entity was not found")) {
+      
+      // Fix: Handle "Requested entity was not found" by prompting user to re-select key as per guidelines.
+      if (err.message?.includes("Requested entity was not found")) {
+          setError("LỖI: Không tìm thấy API Key hoặc Project. Vui lòng chọn lại Key.");
+          if (window.aistudio) {
+              await window.aistudio.openSelectKey();
+          }
+      } else if (err.message === "API_KEY_NOT_FOUND" || err.message?.includes("API key")) {
           setError("LỖI CẤU HÌNH: API Key của hệ thống chưa được thiết lập hoặc đã hết hạn.");
       } else {
           setError(`Lỗi xử lý: ${err.message || "Đã xảy ra sự cố kỹ thuật."}`);
