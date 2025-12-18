@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, FileType, Check, AlertCircle, RefreshCw, FileText, Sparkles, Key, Zap, Diamond, Info } from 'lucide-react';
+import { Upload, FileType, Check, AlertCircle, RefreshCw, FileText, Sparkles, Key, Zap, Diamond, Info, LogIn, ExternalLink } from 'lucide-react';
 import Button from './components/Button';
 import StepIndicator from './components/StepIndicator';
 import { ProcessingState, SlideData, ProcessingProgress, ModelMode } from './types';
@@ -24,7 +24,6 @@ const App: React.FC = () => {
   const [status, setStatus] = useState<ProcessingState>(ProcessingState.IDLE);
   const [progress, setProgress] = useState<ProcessingProgress>({ current: 0, total: 0, message: '' });
   const [error, setError] = useState<string | null>(null);
-  // Quan trọng: Mặc định là false để người dùng bắt buộc phải qua bước kiểm tra/chọn Key
   const [hasApiKey, setHasApiKey] = useState<boolean>(false);
   const [modelMode, setModelMode] = useState<ModelMode>('flash'); 
 
@@ -37,30 +36,28 @@ const App: React.FC = () => {
           const selected = await window.aistudio.hasSelectedApiKey();
           setHasApiKey(selected);
         } catch (e) {
-          console.error("Error checking API key status", e);
           setHasApiKey(false);
         }
       } else {
-        // Nếu không ở trong môi trường AI Studio (ví dụ chạy local hoặc vercel trực tiếp)
-        // Ta kiểm tra xem biến môi trường có sẵn không
+        // Fallback for direct Vercel deployment with pre-configured env
         setHasApiKey(!!process.env.API_KEY);
       }
     };
     checkKey();
   }, []);
 
-  const handleSelectKey = async () => {
+  const handleLoginWithGoogle = async () => {
     if (window.aistudio) {
       try {
         await window.aistudio.openSelectKey();
-        // Theo quy tắc: giả định thành công ngay sau khi mở dialog để tránh race condition
+        // Giả định thành công ngay lập tức để tránh race condition theo hướng dẫn
         setHasApiKey(true);
         setError(null);
       } catch (e) {
-        console.error("Error opening key selector", e);
+        console.error("Login failed", e);
       }
     } else {
-      setError("Tính năng chọn Key chỉ khả dụng trong môi trường AI Studio. Vui lòng kiểm tra biến môi trường API_KEY.");
+      setError("Môi trường này không hỗ trợ xác thực Google AI Studio.");
     }
   };
 
@@ -87,7 +84,7 @@ const App: React.FC = () => {
     if (!file) return;
 
     if (!hasApiKey && window.aistudio) {
-        await handleSelectKey();
+        await handleLoginWithGoogle();
         return;
     }
 
@@ -130,10 +127,11 @@ const App: React.FC = () => {
     } catch (err: any) {
       console.error(err);
       const errMsg = err.message || "";
-      if (errMsg.includes("Requested entity was not found") || errMsg.includes("API_KEY_INVALID") || errMsg.includes("403") || errMsg.includes("401")) {
+      // Xử lý lỗi "Requested entity was not found" hoặc lỗi 4xx để yêu cầu chọn lại Key
+      if (errMsg.includes("Requested entity was not found") || errMsg.includes("API_KEY_INVALID") || errMsg.includes("403") || errMsg.includes("401") || errMsg.includes("404")) {
           setHasApiKey(false);
           setStatus(ProcessingState.IDLE);
-          setError(`Lỗi xác thực: Mô hình ${modelMode.toUpperCase()} từ chối truy cập. Nếu bạn dùng gói miễn phí, hãy chọn mô hình "Flash" hoặc thiết lập lại API Key.`);
+          setError(`Xác thực thất bại. Vui lòng đăng nhập lại và chọn một API Key hợp lệ.`);
       } else {
           setStatus(ProcessingState.ERROR);
           setError(errMsg || "Đã xảy ra lỗi trong quá trình xử lý.");
@@ -177,11 +175,11 @@ const App: React.FC = () => {
                     </div>
 
                     <button 
-                        onClick={handleSelectKey}
-                        className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold transition-all ${hasApiKey ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-amber-50 text-amber-700 border border-amber-200 animate-pulse'}`}
+                        onClick={handleLoginWithGoogle}
+                        className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold transition-all ${hasApiKey ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-indigo-600 text-white shadow-lg shadow-indigo-100 animate-pulse'}`}
                     >
-                        <Key size={14} />
-                        {hasApiKey ? 'API OK' : 'Setup Key'}
+                        {hasApiKey ? <Check size={14} /> : <LogIn size={14} />}
+                        {hasApiKey ? 'Đã đăng nhập' : 'Đăng nhập Google'}
                     </button>
                 </div>
             </div>
@@ -189,25 +187,37 @@ const App: React.FC = () => {
 
         <main className="flex-grow flex flex-col items-center justify-center p-4">
             {!hasApiKey && status === ProcessingState.IDLE && (
-                <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-amber-100 p-8 text-center mb-8 animate-in slide-in-from-bottom-4">
-                    <div className="w-16 h-16 bg-amber-50 text-amber-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <Key className="w-8 h-8" />
+                <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-100 p-10 text-center mb-8 animate-in slide-in-from-bottom-6 duration-500">
+                    <div className="w-20 h-20 bg-indigo-50 text-indigo-600 rounded-3xl flex items-center justify-center mx-auto mb-6 rotate-3">
+                        <LogIn className="w-10 h-10" />
                     </div>
-                    <h2 className="text-xl font-bold mb-2">Cấu hình API Key</h2>
-                    <p className="text-slate-500 text-sm mb-6 leading-relaxed">
-                        Để bắt đầu, bạn cần chọn API Key từ Google AI Studio. <b>Gemini 2.5 Flash</b> thường hỗ trợ tốt cho các tài khoản dùng thử.
+                    <h2 className="text-2xl font-bold mb-3 tracking-tight">Chào mừng bạn trở lại</h2>
+                    <p className="text-slate-500 text-sm mb-8 leading-relaxed">
+                        Vui lòng kết nối với tài khoản <b>Google AI Studio</b> của bạn để bắt đầu chuyển đổi và phục hồi slide.
                     </p>
-                    <div className="space-y-3">
-                        <Button onClick={handleSelectKey} className="w-full shadow-lg shadow-indigo-100">Chọn API Key</Button>
-                        <div className="flex items-center justify-center gap-2 text-[10px] text-slate-400">
-                             <Info size={12} />
-                             <span>Yêu cầu dự án Google Cloud có bật Billing nếu dùng Pro</span>
+                    <div className="space-y-4">
+                        <Button onClick={handleLoginWithGoogle} className="w-full h-14 text-lg shadow-xl shadow-indigo-100">
+                            Đăng nhập bằng Google
+                        </Button>
+                        <div className="flex flex-col gap-2">
+                             <div className="flex items-center justify-center gap-1.5 text-[11px] text-slate-400 font-medium">
+                                 <Info size={12} />
+                                 <span>Sử dụng API Key cá nhân từ AI Studio</span>
+                             </div>
+                             <a 
+                                href="https://ai.google.dev/gemini-api/docs/billing" 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-[10px] text-indigo-500 hover:text-indigo-700 flex items-center justify-center gap-1 underline underline-offset-2"
+                             >
+                                Tài liệu về Billing & Quota <ExternalLink size={10} />
+                             </a>
                         </div>
                     </div>
                 </div>
             )}
 
-            <div className={`w-full max-w-2xl transition-all duration-300 ${!hasApiKey && status === ProcessingState.IDLE ? 'opacity-40 pointer-events-none grayscale' : ''}`}>
+            <div className={`w-full max-w-2xl transition-all duration-500 ${!hasApiKey && status === ProcessingState.IDLE ? 'opacity-30 pointer-events-none blur-[2px]' : ''}`}>
                 
                 {status !== ProcessingState.IDLE && status !== ProcessingState.COMPLETED && (
                      <div className="mb-8 flex justify-center">
@@ -216,29 +226,31 @@ const App: React.FC = () => {
                 )}
 
                 {error && (
-                    <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4 flex flex-col gap-2 animate-in fade-in slide-in-from-top-2">
+                    <div className="mb-6 bg-red-50 border border-red-200 rounded-xl p-5 flex flex-col gap-3 animate-in fade-in slide-in-from-top-2">
                         <div className="flex items-center gap-3">
-                            <AlertCircle className="w-5 h-5 text-red-600" />
-                            <span className="text-red-800 text-sm font-bold">{error}</span>
+                            <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
+                            <span className="text-red-800 text-sm font-bold leading-tight">{error}</span>
                         </div>
-                        {modelMode === 'pro' && (
-                            <button onClick={() => setModelMode('flash')} className="text-xs text-indigo-600 font-bold ml-8 text-left hover:underline">
-                                → Thử chuyển sang chế độ Flash (Dành cho tài khoản Free)
+                        <div className="flex flex-wrap gap-4 ml-8">
+                            {modelMode === 'pro' && (
+                                <button onClick={() => setModelMode('flash')} className="text-xs text-indigo-600 font-bold hover:underline">
+                                    → Dùng mô hình Flash (Miễn phí)
+                                </button>
+                            )}
+                            <button onClick={handleLoginWithGoogle} className="text-xs text-slate-600 font-bold hover:underline">
+                                → Đổi tài khoản Google / API Key
                             </button>
-                        )}
-                        <button onClick={handleSelectKey} className="text-xs text-slate-500 font-medium ml-8 text-left hover:underline">
-                            → Thiết lập lại API Key
-                        </button>
+                        </div>
                     </div>
                 )}
 
                 {status === ProcessingState.IDLE && !file && (
                     <div className="flex flex-col gap-6">
-                        <div className="flex md:hidden bg-white p-1 rounded-xl border border-slate-200 shadow-sm">
-                            <button onClick={() => setModelMode('pro')} className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-bold ${modelMode === 'pro' ? 'bg-indigo-50 text-indigo-600 border border-indigo-100' : 'text-slate-500'}`}>
+                        <div className="flex md:hidden bg-white p-1.5 rounded-2xl border border-slate-200 shadow-sm">
+                            <button onClick={() => setModelMode('pro')} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition-all ${modelMode === 'pro' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500'}`}>
                                 <Diamond size={14} /> Pro
                             </button>
-                            <button onClick={() => setModelMode('flash')} className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-bold ${modelMode === 'flash' ? 'bg-amber-50 text-amber-600 border border-amber-100' : 'text-slate-500'}`}>
+                            <button onClick={() => setModelMode('flash')} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition-all ${modelMode === 'flash' ? 'bg-amber-500 text-white shadow-md' : 'text-slate-500'}`}>
                                 <Zap size={14} /> Flash
                             </button>
                         </div>
@@ -255,85 +267,85 @@ const App: React.FC = () => {
                                     } else { setError("Vui lòng tải lên PDF."); }
                                 }
                             }}
-                            className="bg-white border-2 border-dashed border-slate-300 rounded-2xl p-12 flex flex-col items-center justify-center text-center hover:border-indigo-500 hover:bg-indigo-50/30 transition-all cursor-pointer group shadow-sm"
+                            className="bg-white border-2 border-dashed border-slate-300 rounded-3xl p-16 flex flex-col items-center justify-center text-center hover:border-indigo-500 hover:bg-indigo-50/20 transition-all cursor-pointer group shadow-sm"
                             onClick={() => fileInputRef.current?.click()}
                         >
-                            <div className="w-20 h-20 bg-indigo-50 rounded-3xl flex items-center justify-center mb-6 group-hover:scale-110 group-hover:rotate-3 transition-all shadow-sm">
-                                <Upload className="w-10 h-10 text-indigo-600" />
+                            <div className="w-24 h-24 bg-indigo-50 rounded-[2rem] flex items-center justify-center mb-8 group-hover:scale-110 group-hover:-rotate-3 transition-all duration-300 shadow-sm">
+                                <Upload className="w-12 h-12 text-indigo-600" />
                             </div>
-                            <h2 className="text-2xl font-bold text-slate-900 mb-2">Tải lên PDF Bản Quét</h2>
-                            <p className="text-slate-500 text-sm mb-8 max-w-xs mx-auto leading-relaxed">
-                                Tự động nhận diện chữ tiếng Việt, phục hồi nền slide và tối ưu hóa bố cục trang.
+                            <h2 className="text-3xl font-black text-slate-900 mb-3 tracking-tight">Kéo thả PDF vào đây</h2>
+                            <p className="text-slate-500 text-base mb-10 max-w-sm mx-auto leading-relaxed font-medium">
+                                Chuyển đổi bản quét thành PowerPoint có thể chỉnh sửa với công nghệ phục hồi nền AI.
                             </p>
-                            <Button className="w-full max-w-xs shadow-xl shadow-indigo-100">Chọn tệp PDF</Button>
+                            <Button className="px-10 h-14 text-lg shadow-2xl shadow-indigo-100">Chọn tệp tin</Button>
                             <input type="file" ref={fileInputRef} accept="application/pdf" className="hidden" onChange={handleFileChange} />
                         </div>
                     </div>
                 )}
 
                 {status === ProcessingState.IDLE && file && (
-                    <div className="bg-white rounded-2xl shadow-xl border border-slate-100 p-8 flex flex-col sm:flex-row items-center gap-8 animate-in zoom-in-95 duration-300">
-                         <div className="w-32 h-44 bg-slate-50 rounded-lg border border-slate-200 shadow-inner flex-shrink-0 overflow-hidden relative">
+                    <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 p-10 flex flex-col md:flex-row items-center gap-10 animate-in zoom-in-95 duration-500">
+                         <div className="w-40 h-56 bg-slate-50 rounded-2xl border border-slate-200 shadow-inner flex-shrink-0 overflow-hidden relative group">
                                 {filePreview ? (
                                     <img src={filePreview} alt="Preview" className="w-full h-full object-contain" />
                                 ) : (
-                                    <div className="w-full h-full flex items-center justify-center text-slate-300"><FileType size={40} /></div>
+                                    <div className="w-full h-full flex items-center justify-center text-slate-300"><FileType size={50} /></div>
                                 )}
-                                <div className="absolute top-2 right-2 bg-indigo-600 text-white p-1 rounded-md shadow-lg">
-                                    <Sparkles size={14} />
+                                <div className="absolute top-3 right-3 bg-indigo-600 text-white p-1.5 rounded-xl shadow-xl">
+                                    <Sparkles size={16} />
                                 </div>
                          </div>
-                         <div className="flex-grow text-center sm:text-left">
-                             <div className="flex items-center justify-center sm:justify-start gap-2 mb-1">
-                                 <h3 className="text-xl font-bold text-slate-900 truncate max-w-[200px]">{file.name}</h3>
-                                 <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${modelMode === 'pro' ? 'bg-indigo-100 text-indigo-700' : 'bg-amber-100 text-amber-700'}`}>
+                         <div className="flex-grow text-center md:text-left">
+                             <div className="flex items-center justify-center md:justify-start gap-3 mb-2">
+                                 <h3 className="text-2xl font-black text-slate-900 truncate max-w-[280px]">{file.name}</h3>
+                                 <span className={`px-2.5 py-1 rounded-lg text-xs font-black uppercase tracking-wider ${modelMode === 'pro' ? 'bg-indigo-100 text-indigo-700' : 'bg-amber-100 text-amber-700'}`}>
                                      {modelMode.toUpperCase()}
                                  </span>
                              </div>
-                             <p className="text-slate-500 text-sm mb-6">{(file.size / 1024 / 1024).toFixed(1)} MB • Phục hồi nền tự động</p>
-                             <div className="flex flex-col sm:flex-row gap-3">
-                                 <Button onClick={startConversion} className="flex-grow shadow-lg shadow-indigo-100">Bắt đầu Phục hồi</Button>
-                                 <Button variant="secondary" onClick={reset}>Hủy bỏ</Button>
+                             <p className="text-slate-500 text-base mb-8 font-medium">{(file.size / 1024 / 1024).toFixed(1)} MB • Đã sẵn sàng phục hồi</p>
+                             <div className="flex flex-col sm:flex-row gap-4">
+                                 <Button onClick={startConversion} className="flex-grow h-14 text-lg shadow-xl shadow-indigo-100">Bắt đầu xử lý</Button>
+                                 <Button variant="secondary" onClick={reset} className="h-14 px-8">Hủy bỏ</Button>
                              </div>
                          </div>
                     </div>
                 )}
 
                 {(status === ProcessingState.READING_PDF || status === ProcessingState.ANALYZING_PAGES || status === ProcessingState.GENERATING_PPTX) && (
-                    <div className="bg-white rounded-2xl shadow-2xl border border-indigo-50 p-10 text-center animate-in fade-in zoom-in-95">
-                        <div className="relative inline-flex items-center justify-center mb-6">
+                    <div className="bg-white rounded-3xl shadow-2xl border border-indigo-50 p-12 text-center animate-in fade-in zoom-in-95 duration-500">
+                        <div className="relative inline-flex items-center justify-center mb-8">
                             <div className="absolute inset-0 bg-indigo-100 rounded-full animate-ping opacity-25"></div>
-                            <div className="relative w-16 h-16 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center">
-                                <RefreshCw className="w-8 h-8 animate-spin" />
+                            <div className="relative w-20 h-20 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center shadow-inner">
+                                <RefreshCw className="w-10 h-10 animate-spin" />
                             </div>
                         </div>
-                        <h3 className="text-xl font-bold text-slate-900 mb-2">{progress.message}</h3>
-                        <p className="text-indigo-600/60 text-xs uppercase tracking-widest font-bold mb-8 flex items-center justify-center gap-2">
-                            <Sparkles size={14} /> Advanced Background Healing Active
+                        <h3 className="text-2xl font-black text-slate-900 mb-3 tracking-tight">{progress.message}</h3>
+                        <p className="text-indigo-600/60 text-xs uppercase tracking-[0.2em] font-black mb-10 flex items-center justify-center gap-2">
+                            <Sparkles size={16} /> AI Healing Technology Active
                         </p>
                         
-                        <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden mb-3">
+                        <div className="w-full bg-slate-100 rounded-full h-4 overflow-hidden mb-4 shadow-inner">
                             <div 
-                                className="bg-indigo-600 h-full transition-all duration-700 ease-in-out shadow-[0_0_15px_rgba(79,70,229,0.5)]"
+                                className="bg-indigo-600 h-full transition-all duration-700 ease-in-out shadow-[0_0_20px_rgba(79,70,229,0.6)] rounded-full"
                                 style={{ width: `${(progress.current / Math.max(progress.total, 1)) * 100}%` }}
                             />
                         </div>
-                        <div className="flex justify-between text-[10px] text-slate-400 font-bold uppercase tracking-tighter px-1">
-                            <span>Đang xử lý {modelMode.toUpperCase()}</span>
+                        <div className="flex justify-between text-[11px] text-slate-400 font-black uppercase tracking-widest px-1">
+                            <span>Sử dụng {modelMode.toUpperCase()}</span>
                             <span>{Math.round((progress.current / Math.max(progress.total, 1)) * 100)}%</span>
                         </div>
                     </div>
                 )}
 
                 {status === ProcessingState.COMPLETED && (
-                    <div className="bg-white rounded-2xl shadow-2xl border border-green-50 p-12 text-center animate-in bounce-in duration-500">
-                        <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
-                            <Check className="w-10 h-10" />
+                    <div className="bg-white rounded-3xl shadow-2xl border border-green-50 p-14 text-center animate-in bounce-in duration-700">
+                        <div className="w-24 h-24 bg-green-100 text-green-600 rounded-[2.5rem] flex items-center justify-center mx-auto mb-8 shadow-inner rotate-12">
+                            <Check className="w-12 h-12" />
                         </div>
-                        <h2 className="text-2xl font-bold text-slate-900 mb-2">Thành công!</h2>
-                        <p className="text-slate-500 mb-8">File PowerPoint đã được tạo. Tất cả nội dung đã sẵn sàng để chỉnh sửa.</p>
-                        <div className="flex flex-col gap-3">
-                            <Button onClick={reset} variant="primary" className="w-full shadow-lg shadow-indigo-100">Tải tệp khác</Button>
+                        <h2 className="text-3xl font-black text-slate-900 mb-3 tracking-tight">Thành công!</h2>
+                        <p className="text-slate-500 text-base mb-10 font-medium leading-relaxed">File PowerPoint đã được tạo thành công với nội dung hoàn toàn có thể chỉnh sửa.</p>
+                        <div className="flex flex-col gap-4">
+                            <Button onClick={reset} variant="primary" className="w-full h-14 text-lg shadow-xl shadow-indigo-100">Xử lý tệp khác</Button>
                         </div>
                     </div>
                 )}
@@ -341,13 +353,13 @@ const App: React.FC = () => {
             </div>
         </main>
         
-        <footer className="py-8 text-center text-slate-400 text-xs flex flex-col items-center gap-3">
-            <div className="flex items-center gap-2">
-                <span>ScanToPPT AI Pro • OCR with AI Background Healing Technology</span>
-                <span className="px-2 py-0.5 bg-slate-100 rounded text-[10px] font-bold">V2.7</span>
+        <footer className="py-10 text-center text-slate-400 text-xs flex flex-col items-center gap-4">
+            <div className="flex items-center gap-3">
+                <span className="font-medium">ScanToPPT AI Pro • OCR with AI Background Healing Technology</span>
+                <span className="px-2.5 py-1 bg-slate-200 text-slate-600 rounded-lg text-[10px] font-black">V2.8</span>
             </div>
-            <div className="text-slate-500 font-medium">
-                Thực hiện bởi <a href="https://www.facebook.com/lamtung2201/" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-700 font-bold underline decoration-indigo-200 underline-offset-4">Tùng Tinh Tấn</a>
+            <div className="text-slate-500 font-bold">
+                Thực hiện bởi <a href="https://www.facebook.com/lamtung2201/" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-700 font-black underline decoration-indigo-200 underline-offset-4 decoration-2 transition-all">Tùng Tinh Tấn</a>
             </div>
         </footer>
     </div>
