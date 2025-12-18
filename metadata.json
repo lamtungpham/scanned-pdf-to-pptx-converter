@@ -1,0 +1,5 @@
+{
+  "name": "Scanned PDF to PPTX Converter (OCR)",
+  "description": "Convert scanned PDFs to editable PowerPoint files using Gemini 2.5 Flash for advanced OCR and layout preservation, with full Vietnamese language support.",
+  "requestFramePermissions": []
+}
