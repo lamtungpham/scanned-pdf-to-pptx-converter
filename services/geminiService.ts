@@ -12,23 +12,22 @@ Bạn là chuyên gia OCR cao cấp cho việc chuyển đổi slide bài giản
 
 const getAIInstance = () => {
   const apiKey = process.env.API_KEY;
-  if (!apiKey || apiKey === 'undefined' || apiKey === '') {
-    throw new Error("API_KEY_NOT_FOUND");
-  }
+  if (!apiKey) throw new Error("API_KEY_NOT_CONFIGURED");
   return new GoogleGenAI({ apiKey });
 };
 
 export const analyzeSlideLayout = async (base64Image: string, pageIndex: number, mode: ModelMode): Promise<SlideElement[]> => {
+  const ai = getAIInstance();
+  // Ưu tiên Gemini 3 Flash cho public use vì tốc độ và quota tốt hơn
+  const modelName = 'gemini-3-flash-preview';
+  
   try {
-    const ai = getAIInstance();
-    const modelName = mode === 'pro' ? 'gemini-3-pro-preview' : 'gemini-3-flash-preview';
-    
     const response = await ai.models.generateContent({
       model: modelName,
       contents: {
         parts: [
           { inlineData: { mimeType: "image/jpeg", data: base64Image } },
-          { text: "Phân tích và trích xuất các khối văn bản trong slide này." }
+          { text: "Trích xuất tất cả các khối văn bản trong ảnh này sang định dạng JSON. Đảm bảo giữ đúng nội dung Tiếng Việt." }
         ]
       },
       config: {
@@ -68,27 +67,27 @@ export const analyzeSlideLayout = async (base64Image: string, pageIndex: number,
     }));
   } catch (error: any) {
     console.error(`OCR Error:`, error);
-    throw error;
+    return [];
   }
 };
 
 export const inpaintImage = async (maskedBase64: string, mode: ModelMode): Promise<string> => {
-  try {
-    const ai = getAIInstance();
-    const modelName = mode === 'pro' ? 'gemini-3-pro-image-preview' : 'gemini-2.5-flash-image';
+  const ai = getAIInstance();
+  // Gemini 2.5 Flash Image là lựa chọn tốt nhất để phục hồi nền slide
+  const modelName = 'gemini-2.5-flash-image';
 
+  try {
     const response = await ai.models.generateContent({
       model: modelName,
       contents: {
         parts: [
           { inlineData: { data: maskedBase64, mimeType: 'image/jpeg' } },
-          { text: 'Xóa sạch văn bản và phục hồi nền slide.' },
+          { text: 'Hãy làm sạch các vùng bị che khuất và phục hồi nền slide gốc sao cho hoàn toàn tự nhiên.' },
         ],
       },
       config: {
         imageConfig: {
-            aspectRatio: "16:9",
-            imageSize: mode === 'pro' ? "1K" : undefined
+            aspectRatio: "16:9"
         }
       }
     });
